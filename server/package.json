@@ -1,0 +1,35 @@
+{
+  "name": "pulse-watch-server",
+  "version": "1.0.0",
+  "description": "Pulse-Watch API",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-async-handler": "^1.2.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^7.1.0",
+    "ipaddr.js": "^2.5.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.11.1",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^10.1.0",
+    "p-limit": "^7.3.3",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "pino-pretty": "^11.0.0"
+  }
+}

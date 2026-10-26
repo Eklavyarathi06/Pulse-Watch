@@ -1,6 +1,8 @@
 # PulseWatch — Confirmed-Failure Uptime & API Monitoring
 
 > Production-grade, zero-false-alarm uptime and API monitoring with tenant-isolated, write-only cryptography.
+>
+> **Live Deployment:** [https://pulse-watch-frkc.onrender.com](https://pulse-watch-frkc.onrender.com)
 
 ---
 

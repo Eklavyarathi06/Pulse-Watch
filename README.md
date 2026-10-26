@@ -141,9 +141,11 @@ Before monitoring a website, prove ownership under the **Domains** tab:
 - **30-Day Uptime Bars**: Daily interactive color-coded bars indicating uptime percentages.
 
 ### Team Collaboration & RBAC
-- **Owner**: Full administrative authority, billing management, workspace deletion, ownership transfer.
-- **Admin**: Monitor management, domain verification, team invitations, alert channel configuration.
-- **Member**: Create, edit, pause, and run manual checks on monitors.
+### Enterprise Authentication & Verification Gate
+- **Google OAuth 2.0 Integration**: One-click "Continue with Google" sign-in with instant email pre-verification and profile synchronization (just like Supabase/Firebase Auth).
+- **Mandatory 6-Digit OTP Email Verification Gate**: Strictly blocks unverified or arbitrary email signups from entering the dashboard or using workspace features until their 6-digit code or link is confirmed.
+- **Two-Factor Authentication (TOTP)**: RFC 6238-compliant authenticator app setup with QR code and single-use hashed recovery backup codes.
+- **Rate-Limiting & Account Lockout**: Exponential backoff lockout defense against brute-force credential stuffing.
 
 ---
 

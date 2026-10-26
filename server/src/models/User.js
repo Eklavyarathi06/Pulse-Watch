@@ -12,7 +12,17 @@ const userSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: true,
+      default: null,
+    },
+    googleId: {
+      type: String,
+      default: null,
+      index: true,
+      sparse: true,
+    },
+    avatarUrl: {
+      type: String,
+      default: null,
     },
     name: {
       type: String,
@@ -26,6 +36,7 @@ const userSchema = new mongoose.Schema(
     },
     emailVerified: { type: Boolean, default: false },
     emailVerifyTokenHash: { type: String, default: null, index: true, sparse: true },
+    emailVerifyCode: { type: String, default: null, select: false },
     emailVerifyExpires: { type: Date, default: null },
     emailVerifySentAt: { type: Date, default: null },
     resetTokenHash: { type: String, default: null, index: true, sparse: true },
@@ -57,12 +68,13 @@ const userSchema = new mongoose.Schema(
 // Hash password before save.
 // Mongoose 9 no longer passes a `next` callback to middleware — async hooks resolve on return.
 userSchema.pre('save', async function () {
-  if (!this.isModified('passwordHash')) return;
+  if (!this.isModified('passwordHash') || !this.passwordHash) return;
   this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
 });
 
 // Compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.passwordHash) return false;
   return await bcrypt.compare(candidatePassword, this.passwordHash);
 };
 

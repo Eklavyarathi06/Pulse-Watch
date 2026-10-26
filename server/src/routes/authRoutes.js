@@ -4,6 +4,7 @@ import {
   register,
   login,
   loginTwoFactor,
+  googleAuth,
   twoFactorSetup,
   twoFactorEnable,
   twoFactorDisable,
@@ -13,6 +14,7 @@ import {
   getMe,
   demoLogin,
   verifyEmail,
+  verifyEmailCode,
   resendVerification,
   forgotPassword,
   resetPassword,
@@ -43,12 +45,14 @@ const mailLimiter = limiter(5);
 router.post('/register', authLimiter, register);
 router.post('/login', authLimiter, login);
 router.post('/login/2fa', authLimiter, loginTwoFactor);
+router.post('/google', authLimiter, googleAuth);
 router.post('/demo', authLimiter, demoLogin);
 router.post('/logout', logout);
 router.post('/logout-all', protect, logoutAll);
 router.get('/me', protect, getMe);
 
 router.post('/verify-email', authLimiter, verifyEmail);
+router.post('/verify-code', protect, authLimiter, verifyEmailCode);
 router.post('/resend-verification', protect, mailLimiter, resendVerification);
 router.post('/forgot-password', mailLimiter, forgotPassword);
 router.post('/reset-password', authLimiter, resetPassword);

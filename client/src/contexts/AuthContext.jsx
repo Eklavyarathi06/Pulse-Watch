@@ -3,7 +3,7 @@ import api from '../utils/api';
 
 const AuthContext = createContext(null);
 
-const EMPTY = { user: null, workspace: null, workspaces: [], requireEmailVerification: true, twoFactorRequired: false };
+const EMPTY = { user: null, workspace: null, workspaces: [], requireEmailVerification: true, twoFactorRequired: false, devVerificationCode: null };
 
 export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(EMPTY);
@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }) => {
       workspaces: data.workspaces || [],
       requireEmailVerification: data.requireEmailVerification ?? true,
       twoFactorRequired: Boolean(data.twoFactorRequired),
+      devVerificationCode: data.devVerificationCode || null,
     });
     return data;
   }, []);
@@ -73,6 +74,9 @@ export const AuthProvider = ({ children }) => {
   }, [apply]);
   const verifyTwoFactor = useCallback((mfaTicket, code) => call('post', '/auth/login/2fa', { mfaTicket, code }), [call]);
   const register = useCallback((data) => call('post', '/auth/register', data), [call]);
+  const loginWithGoogle = useCallback((data) => call('post', '/auth/google', data), [call]);
+  const verifyEmailCode = useCallback((code) => call('post', '/auth/verify-code', { code }), [call]);
+  const resendVerification = useCallback(() => api.post('/auth/resend-verification'), []);
   const demoLogin = useCallback(() => call('post', '/auth/demo'), [call]);
   const resetPassword = useCallback(async (token, password) => {
     const res = await api.post('/auth/reset-password', { token, password });
@@ -126,6 +130,9 @@ export const AuthProvider = ({ children }) => {
       apply,
       refresh,
       login,
+      loginWithGoogle,
+      verifyEmailCode,
+      resendVerification,
       verifyTwoFactor,
       register,
       demoLogin,
@@ -140,7 +147,7 @@ export const AuthProvider = ({ children }) => {
       deleteAccount,
       setWorkspace,
     }),
-    [session, isLoading, role, apply, refresh, login, verifyTwoFactor, register, demoLogin, logout, logoutAll, resetPassword, acceptInvite, switchWorkspace, createWorkspace, updateProfile, changePassword, deleteAccount, setWorkspace]
+    [session, isLoading, role, apply, refresh, login, loginWithGoogle, verifyEmailCode, resendVerification, verifyTwoFactor, register, demoLogin, logout, logoutAll, resetPassword, acceptInvite, switchWorkspace, createWorkspace, updateProfile, changePassword, deleteAccount, setWorkspace]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

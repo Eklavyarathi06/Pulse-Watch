@@ -17,18 +17,22 @@ ${cta ? `<tr><td style="padding:24px 32px 0"><a href="${esc(ctaUrl)}" style="dis
 <tr><td style="padding:24px 32px 28px;font-size:12px;color:#6f6b62">${esc(footnote || '')}</td></tr>
 </table></td></tr></table></body></html>`;
 
-export const verifyEmailTemplate = ({ name, token }) => {
+export const verifyEmailTemplate = ({ name, token, code }) => {
   const url = `${env.APP_URL}/verify-email?token=${encodeURIComponent(token)}`;
   return {
-    subject: 'Confirm your email for PulseWatch',
-    text: `Hi ${name},\n\nConfirm your email address to start monitoring:\n${url}\n\nThis link expires in 24 hours. If you didn't sign up, ignore this email.`,
+    subject: `Confirm your PulseWatch account — Code: ${code || 'Verification'}`,
+    text: `Hi ${name},\n\nYour 6-digit confirmation code is: ${code}\n\nOr click the link below to verify your account:\n${url}\n\nThis code and link expire in 24 hours. If you didn't create a PulseWatch account, please ignore this email.`,
     html: layout({
-      preheader: 'One click to confirm your email.',
+      preheader: `Your verification code is ${code}.`,
       heading: 'Confirm your email',
-      body: `Hi ${esc(name)}, confirm this address so PulseWatch can create monitors and send you alerts.`,
-      cta: 'Confirm email',
+      body: `Hi ${esc(name)}, confirm this address to activate your PulseWatch account and unlock uptime monitors.<br><br>
+<div style="margin:20px 0;padding:16px;background:#181816;border:1px dashed #3a3a34;border-radius:10px;text-align:center">
+  <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#8e8a80">Your 6-Digit Verification Code</span>
+  <div style="font-size:32px;font-weight:700;letter-spacing:6px;color:#ede8df;margin-top:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace">${esc(code)}</div>
+</div>`,
+      cta: 'Confirm via Link',
       ctaUrl: url,
-      footnote: "This link expires in 24 hours. If you didn't create an account, you can ignore this email.",
+      footnote: "This code expires in 24 hours. If you didn't create an account, you can safely ignore this email.",
     }),
   };
 };

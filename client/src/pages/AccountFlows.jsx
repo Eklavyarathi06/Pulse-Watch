@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowRight, MailCheck } from 'lucide-react';
+import { ArrowRight, MailCheck, Mail, RefreshCw, LogOut, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -130,45 +130,165 @@ export function ResetPasswordPage() {
 export function VerifyEmailPage() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
-  const { user, refresh } = useAuth();
-  const [state, setState] = useState({ status: token ? 'working' : 'error', message: token ? '' : 'This link is missing its token.' });
+  const { user, devVerificationCode, verifyEmailCode, resendVerification, refresh, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const [code, setCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [tokenStatus, setTokenStatus] = useState(token ? 'working' : 'idle');
   const ran = useRef(false);
 
+  // If a magic token is present in URL (from email link), auto-verify
   useEffect(() => {
-    if (!token || ran.current) return; // StrictMode runs effects twice; the token is single-use
+    if (!token || ran.current) return;
     ran.current = true;
     api
       .post('/auth/verify-email', { token })
       .then(async (r) => {
-        setState({ status: 'done', message: r.data.email });
+        setTokenStatus('done');
+        setSuccessMsg(`${r.data?.email || 'Your email'} has been verified successfully!`);
         await refresh();
+        setTimeout(() => navigate('/dashboard', { replace: true }), 1500);
       })
-      .catch((err) => setState({ status: 'error', message: err.message }));
-  }, [token, refresh]);
+      .catch((err) => {
+        setTokenStatus('error');
+        setError(err.message);
+      });
+  }, [token, refresh, navigate]);
+
+  // Cooldown timer
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown((c) => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    const clean = code.trim().replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(clean)) {
+      setError('Please enter a 6-digit verification code.');
+      return;
+    }
+    setError('');
+    setSubmitting(true);
+    try {
+      await verifyEmailCode(clean);
+      setSuccessMsg('Email verified successfully! Redirecting to dashboard...');
+      setTimeout(() => navigate('/dashboard', { replace: true }), 1200);
+    } catch (err) {
+      setError(err.message || 'Invalid code');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (cooldown > 0) return;
+    setError('');
+    setResending(true);
+    try {
+      await resendVerification();
+      setCooldown(60);
+      setSuccessMsg('A fresh verification code has been dispatched to your email.');
+    } catch (err) {
+      setError(err.message || 'Failed to resend code');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  if (tokenStatus === 'working') {
+    return (
+      <AuthShell eyebrow="Email confirmation" title="Confirming…">
+        <div className="skeleton h-12 rounded-[10px]" />
+      </AuthShell>
+    );
+  }
+
+  if (tokenStatus === 'done' || successMsg.includes('Redirecting')) {
+    return (
+      <AuthShell eyebrow="Account active" title={<>You’re <span className="serif-i text-up">verified.</span></>}>
+        <div className="space-y-6">
+          <Notice tone="success">
+            <CheckCircle2 className="mr-1.5 inline h-4 w-4" /> {successMsg || 'Your email address is confirmed.'}
+          </Notice>
+          <Button size="lg" className="w-full" onClick={() => navigate('/dashboard', { replace: true })}>
+            Open Dashboard <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
-      eyebrow="Email confirmation"
-      title={state.status === 'done' ? <>You’re <span className="serif-i text-up">verified.</span></> : state.status === 'working' ? 'Confirming…' : 'Link not valid'}
+      eyebrow="Security verification"
+      title={<>Verify your <span className="serif-i">email address</span></>}
+      subtitle={`Enter the 6-digit verification code sent to ${user?.email || 'your email'} to activate your account.`}
     >
-      {state.status === 'working' && <div className="skeleton h-12 rounded-[10px]" />}
-      {state.status === 'done' && (
-        <div className="space-y-6">
-          <Notice tone="success"><MailCheck className="mr-1.5 inline h-4 w-4" /> {state.message} is confirmed. You can create monitors and alert channels now.</Notice>
-          <Link to={user ? '/dashboard' : '/auth'} className="inline-flex h-12 items-center gap-2 rounded-full bg-fg px-6 text-[15px] font-medium text-bg hover:bg-white">
-            {user ? 'Open dashboard' : 'Sign in'} <ArrowRight className="h-4 w-4" />
-          </Link>
+      <form onSubmit={handleVerifyCode} className="space-y-5" noValidate>
+        {error && <Notice tone="error">{error}</Notice>}
+        {successMsg && <Notice tone="success">{successMsg}</Notice>}
+
+        {devVerificationCode && (
+          <div className="rounded-[10px] border border-up/30 bg-up/10 p-3.5 text-xs text-up space-y-1">
+            <div className="font-semibold flex items-center gap-1.5">
+              <span>⚡ Sandbox Mode (SMTP not configured on host):</span>
+            </div>
+            <p className="text-fg-2">
+              Your 6-digit confirmation code is: <strong className="font-mono text-sm tracking-wider text-fg underline">{devVerificationCode}</strong>. Enter it below to activate your account.
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-fg-3">
+            6-Digit Confirmation Code
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="• • • • • •"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
+            autoFocus
+            className="w-full rounded-[10px] border border-line-strong bg-raised-2 px-4 py-3 text-center font-mono text-2xl tracking-[0.4em] text-fg outline-none transition-colors focus:border-fg focus:bg-raised-3"
+          />
         </div>
-      )}
-      {state.status === 'error' && (
-        <div className="space-y-6">
-          <Notice tone="error">{state.message}</Notice>
-          <p className="text-sm text-fg-3">
-            {user ? 'Send yourself a fresh link from the banner on your dashboard.' : 'Sign in and request a fresh link from your dashboard.'}
-          </p>
-          <Link to={user ? '/dashboard' : '/auth'} className="text-sm text-fg underline underline-offset-4">{user ? 'Go to dashboard' : 'Sign in'}</Link>
+
+        <Button type="submit" size="lg" className="w-full" isLoading={submitting} disabled={code.trim().length !== 6}>
+          Verify & Unlock Dashboard {!submitting && <ArrowRight className="h-4 w-4" />}
+        </Button>
+
+        <div className="flex items-center justify-between pt-2 text-xs text-fg-3">
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending || cooldown > 0}
+            className="inline-flex items-center gap-1 hover:text-fg disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${resending ? 'animate-spin' : ''}`} />
+            {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              await logout();
+              navigate('/auth', { replace: true });
+            }}
+            className="inline-flex items-center gap-1 hover:text-down"
+          >
+            <LogOut className="h-3.5 w-3.5" /> Use different email
+          </button>
         </div>
-      )}
+      </form>
     </AuthShell>
   );
 }

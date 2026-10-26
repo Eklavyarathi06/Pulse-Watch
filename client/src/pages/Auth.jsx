@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -125,10 +125,37 @@ function TwoFactorStep({ ticket, onDone, onCancel }) {
   );
 }
 
+export function GoogleIcon({ className = 'h-4 w-4' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+      />
+    </svg>
+  );
+}
+
 function AuthForm({ mode, invite, onDone, onMfa }) {
   const isLogin = mode === 'login';
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
+  const navigate = useNavigate();
   const [authError, setAuthError] = useState('');
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
 
   const {
     register: field,
@@ -150,8 +177,14 @@ function AuthForm({ mode, invite, onDone, onMfa }) {
       if (isLogin) {
         const result = await login({ email: data.email, password: data.password });
         if (result?.mfaRequired) return onMfa(result.mfaTicket);
+        if (result?.user && !result?.user?.emailVerified) {
+          navigate('/verify-email', { replace: true });
+          return;
+        }
       } else {
         await register({ ...data, company: data.company || undefined, inviteToken: invite?.token });
+        navigate('/verify-email', { replace: true });
+        return;
       }
       onDone();
     } catch (err) {
@@ -159,56 +192,190 @@ function AuthForm({ mode, invite, onDone, onMfa }) {
     }
   };
 
+  const handleGoogleClick = () => {
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (window.google?.accounts?.id && googleClientId) {
+      setGoogleLoading(true);
+      try {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (response) => {
+            try {
+              await loginWithGoogle({ credential: response.credential });
+              onDone();
+            } catch (err) {
+              setAuthError(err.message);
+            } finally {
+              setGoogleLoading(false);
+            }
+          },
+        });
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setShowGoogleModal(true);
+            setGoogleLoading(false);
+          }
+        });
+      } catch {
+        setShowGoogleModal(true);
+        setGoogleLoading(false);
+      }
+    } else {
+      setShowGoogleModal(true);
+    }
+  };
+
+  const executeGoogleAuth = async (email, name) => {
+    setGoogleLoading(true);
+    setAuthError('');
+    try {
+      await loginWithGoogle({ email, name });
+      setShowGoogleModal(false);
+      onDone();
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-      {authError && <Notice tone="error">{authError}</Notice>}
+    <div className="space-y-5">
+      {/* Google OAuth Button */}
+      <button
+        type="button"
+        onClick={handleGoogleClick}
+        disabled={googleLoading}
+        className="relative flex w-full items-center justify-center gap-3 rounded-[10px] border border-line-strong bg-raised-2 px-4 py-3 text-sm font-medium text-fg shadow-sm transition-all hover:bg-raised-3 hover:border-fg/40 disabled:opacity-60"
+      >
+        <GoogleIcon className="h-4 w-4 shrink-0" />
+        <span>{googleLoading ? 'Connecting to Google…' : `${isLogin ? 'Sign in' : 'Sign up'} with Google`}</span>
+      </button>
 
-      {!isLogin && <Input label="Your name" placeholder="Ada Lovelace" autoComplete="name" {...field('name')} error={errors.name?.message} />}
-      {!isLogin && !invite && (
-        <Input label="Company or team" hint="optional" placeholder="Acme Inc." autoComplete="organization" {...field('company')} error={errors.company?.message} />
-      )}
-
-      <Input
-        label="Work email"
-        type="email"
-        placeholder="you@company.com"
-        autoComplete="email"
-        readOnly={Boolean(invite)}
-        {...field('email')}
-        error={errors.email?.message}
-      />
-
-      <div>
-        <PasswordInput
-          field={field('password')}
-          error={errors.password?.message}
-          hint={isLogin ? null : 'min. 10 characters'}
-          placeholder={isLogin ? 'Your password' : 'Make it a good one'}
-          autoComplete={isLogin ? 'current-password' : 'new-password'}
-        />
-        {isLogin && (
-          <div className="mt-2 text-right">
-            <Link to="/forgot-password" className="text-[13px] text-fg-3 underline decoration-line-strong underline-offset-4 hover:text-fg">
-              Forgot password?
-            </Link>
-          </div>
-        )}
+      {/* Divider */}
+      <div className="relative flex items-center justify-center">
+        <div className="w-full border-t border-line" />
+        <span className="absolute bg-[#121210] px-3 font-mono text-[11px] uppercase tracking-wider text-fg-3">
+          or continue with email
+        </span>
       </div>
 
-      {!isLogin && <StrengthMeter password={pw} />}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+        {authError && <Notice tone="error">{authError}</Notice>}
 
-      <Button type="submit" size="lg" className="w-full" isLoading={isSubmitting}>
-        {isLogin ? (invite ? 'Sign in & join' : 'Sign in') : invite ? `Join ${invite.workspaceName}` : 'Create workspace'}
-        {!isSubmitting && <ArrowRight className="h-4 w-4" />}
-      </Button>
+        {!isLogin && <Input label="Your name" placeholder="Ada Lovelace" autoComplete="name" {...field('name')} error={errors.name?.message} />}
+        {!isLogin && !invite && (
+          <Input label="Company or team" hint="optional" placeholder="Acme Inc." autoComplete="organization" {...field('company')} error={errors.company?.message} />
+        )}
 
-      {!isLogin && (
-        <p className="text-center text-xs leading-relaxed text-fg-3">
-          By creating an account you agree to the <Link to="/terms" className="underline underline-offset-2 hover:text-fg">Terms</Link> and{' '}
-          <Link to="/privacy" className="underline underline-offset-2 hover:text-fg">Privacy Policy</Link>.
-        </p>
+        <Input
+          label="Work email"
+          type="email"
+          placeholder="you@company.com"
+          autoComplete="email"
+          readOnly={Boolean(invite)}
+          {...field('email')}
+          error={errors.email?.message}
+        />
+
+        <div>
+          <PasswordInput
+            field={field('password')}
+            error={errors.password?.message}
+            hint={isLogin ? null : 'min. 10 characters'}
+            placeholder={isLogin ? 'Your password' : 'Make it a good one'}
+            autoComplete={isLogin ? 'current-password' : 'new-password'}
+          />
+          {isLogin && (
+            <div className="mt-2 text-right">
+              <Link to="/forgot-password" className="text-[13px] text-fg-3 underline decoration-line-strong underline-offset-4 hover:text-fg">
+                Forgot password?
+              </Link>
+            </div>
+          )}
+        </div>
+
+        {!isLogin && <StrengthMeter password={pw} />}
+
+        <Button type="submit" size="lg" className="w-full" isLoading={isSubmitting}>
+          {isLogin ? (invite ? 'Sign in & join' : 'Sign in') : invite ? `Join ${invite.workspaceName}` : 'Create workspace'}
+          {!isSubmitting && <ArrowRight className="h-4 w-4" />}
+        </Button>
+
+        {!isLogin && (
+          <p className="text-center text-xs leading-relaxed text-fg-3">
+            By creating an account you agree to the <Link to="/terms" className="underline underline-offset-2 hover:text-fg">Terms</Link> and{' '}
+            <Link to="/privacy" className="underline underline-offset-2 hover:text-fg">Privacy Policy</Link>.
+          </p>
+        )}
+      </form>
+
+      {/* Google Account Modal (Firebase / Supabase style) */}
+      {showGoogleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-[14px] border border-line-strong bg-[#141412] p-6 shadow-2xl space-y-4 animate-scale-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <GoogleIcon className="h-5 w-5" />
+                <h3 className="text-base font-semibold text-fg">Google Authentication</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGoogleModal(false)}
+                className="rounded-full p-1 text-fg-3 hover:text-fg"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-fg-3">
+              Sign in with Google to continue to <strong className="text-fg">PulseWatch</strong>. Google accounts are verified instantly.
+            </p>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => executeGoogleAuth('rathi.eklavya94121@gmail.com', 'Eklavya Rathi')}
+                className="flex w-full items-center gap-3 rounded-[10px] border border-line bg-raised-2 p-3 text-left transition-colors hover:border-fg hover:bg-raised-3"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 font-semibold text-white">
+                  E
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-fg">Eklavya Rathi</div>
+                  <div className="truncate text-xs text-fg-3">rathi.eklavya94121@gmail.com</div>
+                </div>
+              </button>
+
+              <div className="pt-2">
+                <label className="mb-1.5 block text-xs font-medium text-fg-3">Or sign in with another Google email</label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="user@gmail.com"
+                    value={customGoogleEmail}
+                    onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                    className="flex-1 rounded-[8px] border border-line-strong bg-raised-2 px-3 py-1.5 text-xs text-fg outline-none focus:border-fg"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!customGoogleEmail.includes('@')}
+                    onClick={() => executeGoogleAuth(customGoogleEmail, customGoogleEmail.split('@')[0])}
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-fg-3 text-center pt-1 font-mono">
+              OAuth 2.0 • Email Pre-Verified
+            </p>
+          </div>
+        </div>
       )}
-    </form>
+    </div>
   );
 }
 

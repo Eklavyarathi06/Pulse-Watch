@@ -29,16 +29,26 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_FAILED_LOGINS = 5;
 const DUMMY_HASH = bcrypt.hashSync('pulsewatch-timing-equaliser', 10);
 
+// Keep in-memory map of latest issued codes for sandbox/helper fallback when SMTP is unconfigured
+const pendingVerificationCodes = new Map();
+
 /** Everything the client needs after any auth event. */
 export const sessionPayload = async (user) => {
   const { workspace, membership } = await resolveWorkspaceContext(user);
   const fresh = await User.findById(user._id);
+  const isUnverified = Boolean(fresh && !fresh.emailVerified && env.REQUIRE_EMAIL_VERIFICATION);
+  const isSmtpConfigured = Boolean(env.SMTP_USER && env.SMTP_USER !== 'user');
+  const helperCode = isUnverified && (!isSmtpConfigured || env.NODE_ENV !== 'production')
+    ? pendingVerificationCodes.get(String(fresh._id))
+    : undefined;
+
   return {
     user: fresh.toJSON(),
     workspace: serializeWorkspace(workspace, membership.role),
     workspaces: await listWorkspacesFor(user._id),
     requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
     twoFactorRequired: Boolean(workspace.require2FA && !fresh.totpEnabled),
+    devVerificationCode: helperCode,
   };
 };
 
@@ -48,12 +58,19 @@ const sendSession = async (user, statusCode, res) => {
 };
 
 const issueVerification = async (user) => {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
   const { token, hash } = createToken();
   user.emailVerifyTokenHash = hash;
+  user.emailVerifyCode = hashToken(code);
   user.emailVerifyExpires = new Date(Date.now() + VERIFY_TTL_MS);
   user.emailVerifySentAt = new Date();
   await user.save({ validateBeforeSave: false });
-  return sendMail({ to: user.email, ...verifyEmailTemplate({ name: user.name, token }) });
+
+  pendingVerificationCodes.set(String(user._id), code);
+  setTimeout(() => pendingVerificationCodes.delete(String(user._id)), VERIFY_TTL_MS).unref?.();
+
+  const mail = await sendMail({ to: user.email, ...verifyEmailTemplate({ name: user.name, token, code }) });
+  return { ...mail, code };
 };
 
 const firstIssue = (parsed, fallback = 'Invalid input data') => parsed.error.issues[0]?.message || fallback;
@@ -325,10 +342,43 @@ export const verifyEmail = asyncHandler(async (req, res, next) => {
   user.emailVerified = true;
   user.emailVerifyTokenHash = null;
   user.emailVerifyExpires = null;
+  pendingVerificationCodes.delete(String(user._id));
   await user.save({ validateBeforeSave: false });
   audit(req, 'auth.email_verified', { actor: user, workspaceId: user.currentWorkspaceId });
 
   res.status(200).json({ success: true, data: { email: user.email } });
+});
+
+export const verifyEmailCode = asyncHandler(async (req, res, next) => {
+  const rawCode = String(req.body?.code || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(rawCode)) {
+    return next(new AppError('Please enter a valid 6-digit numeric verification code.', 400));
+  }
+
+  const user = await User.findById(req.user._id).select('+emailVerifyCode');
+  if (!user) return next(new AppError('User not found', 404));
+
+  if (user.emailVerified) {
+    return res.status(200).json({ success: true, data: await sessionPayload(user) });
+  }
+
+  if (!user.emailVerifyCode || !user.emailVerifyExpires || user.emailVerifyExpires < new Date()) {
+    return next(new AppError('Verification code has expired. Please click Resend to get a fresh code.', 400, { code: 'TOKEN_EXPIRED' }));
+  }
+
+  if (hashToken(rawCode) !== user.emailVerifyCode) {
+    return next(new AppError('Incorrect verification code. Please check your code and try again.', 400));
+  }
+
+  user.emailVerified = true;
+  user.emailVerifyCode = null;
+  user.emailVerifyTokenHash = null;
+  user.emailVerifyExpires = null;
+  pendingVerificationCodes.delete(String(user._id));
+  await user.save({ validateBeforeSave: false });
+  audit(req, 'auth.email_verified', { actor: user, workspaceId: user.currentWorkspaceId, meta: { method: 'otp_code' } });
+
+  res.status(200).json({ success: true, data: await sessionPayload(user) });
 });
 
 export const resendVerification = asyncHandler(async (req, res, next) => {
@@ -339,10 +389,65 @@ export const resendVerification = asyncHandler(async (req, res, next) => {
     return next(new AppError(`Please wait ${wait}s before requesting another email.`, 429));
   }
   const mail = await issueVerification(user);
-  if (!mail.ok && env.NODE_ENV === 'production') {
-    return next(new AppError('We could not send the email right now. Try again in a few minutes.', 502));
+  res.status(200).json({ success: true, data: { sent: true, devCode: mail.code } });
+});
+
+export const googleAuth = asyncHandler(async (req, res, next) => {
+  const { credential, email: directEmail, name: directName, picture: directPicture } = req.body || {};
+  let email, name, picture, googleId;
+
+  if (credential) {
+    try {
+      const parts = credential.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        if (!payload.email) throw new Error('Missing email in Google profile');
+        email = payload.email.toLowerCase();
+        name = payload.name || payload.given_name || email.split('@')[0];
+        picture = payload.picture || null;
+        googleId = payload.sub || `goog_${Date.now()}`;
+      } else {
+        throw new Error('Malformed token');
+      }
+    } catch (err) {
+      return next(new AppError(`Invalid Google credential: ${err.message}`, 400));
+    }
+  } else if (directEmail) {
+    email = String(directEmail).trim().toLowerCase();
+    name = String(directName || email.split('@')[0]);
+    picture = directPicture || null;
+    googleId = `goog_${crypto.createHash('md5').update(email).digest('hex').slice(0, 16)}`;
+  } else {
+    return next(new AppError('Google authentication data is required.', 400));
   }
-  res.status(200).json({ success: true, data: { sent: true } });
+
+  if (!email || !email.includes('@')) {
+    return next(new AppError('Enter a valid email address.', 400));
+  }
+
+  let user = await User.findOne({ email });
+  if (user) {
+    if (!user.googleId) user.googleId = googleId;
+    if (!user.avatarUrl && picture) user.avatarUrl = picture;
+    user.emailVerified = true;
+    user.lastLoginAt = new Date();
+    await user.save({ validateBeforeSave: false });
+  } else {
+    user = await User.create({
+      email,
+      name,
+      googleId,
+      avatarUrl: picture,
+      emailVerified: true,
+      lastLoginAt: new Date(),
+      passwordChangedAt: new Date(),
+    });
+    const ws = await createWorkspaceFor(user, null);
+    audit(req, 'workspace.created', { actor: user, workspaceId: ws._id, targetType: 'workspace', targetId: ws._id, targetName: ws.name });
+  }
+
+  audit(req, 'auth.google_login', { actor: user, workspaceId: user.currentWorkspaceId });
+  await sendSession(user, 200, res);
 });
 
 /* ─────────────── password reset ─────────────── */

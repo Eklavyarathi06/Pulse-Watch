@@ -235,13 +235,13 @@ export function VerifyEmailPage() {
         {error && <Notice tone="error">{error}</Notice>}
         {successMsg && <Notice tone="success">{successMsg}</Notice>}
 
-        {devVerificationCode && (
+        {import.meta.env.DEV && devVerificationCode && (
           <div className="rounded-[10px] border border-up/30 bg-up/10 p-3.5 text-xs text-up space-y-1">
             <div className="font-semibold flex items-center gap-1.5">
-              <span>⚡ Sandbox Mode (SMTP not configured on host):</span>
+              <span>⚡ Local Dev Mode (Offline Sandbox):</span>
             </div>
             <p className="text-fg-2">
-              Your 6-digit confirmation code is: <strong className="font-mono text-sm tracking-wider text-fg underline">{devVerificationCode}</strong>. Enter it below to activate your account.
+              Verification code is: <strong className="font-mono text-sm tracking-wider text-fg underline">{devVerificationCode}</strong>.
             </p>
           </div>
         )}

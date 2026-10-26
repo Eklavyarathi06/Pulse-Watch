@@ -38,8 +38,9 @@ export const sessionPayload = async (user) => {
   const { workspace, membership } = await resolveWorkspaceContext(user);
   const fresh = await User.findById(user._id);
   const isUnverified = Boolean(fresh && !fresh.emailVerified && env.REQUIRE_EMAIL_VERIFICATION);
-  const isSmtpConfigured = Boolean(env.SMTP_USER && env.SMTP_USER !== 'user');
-  const helperCode = isUnverified && (!isSmtpConfigured || env.NODE_ENV !== 'production')
+  // Security: NEVER expose verification codes on screen in production!
+  // Codes are only accessible via real email delivery, or in local development.
+  const helperCode = env.NODE_ENV === 'development' && isUnverified
     ? pendingVerificationCodes.get(String(fresh._id))
     : undefined;
 
@@ -390,8 +391,39 @@ export const resendVerification = asyncHandler(async (req, res, next) => {
     return next(new AppError(`Please wait ${wait}s before requesting another email.`, 429));
   }
   const mail = await issueVerification(user);
-  res.status(200).json({ success: true, data: { sent: true, devCode: mail.code } });
+  res.status(200).json({
+    success: true,
+    data: {
+      sent: mail.ok,
+      devCode: env.NODE_ENV === 'development' ? mail.code : undefined,
+    },
+  });
 });
+
+/** Helper to determine the canonical public URL for OAuth redirects & callbacks */
+export const getCanonicalOrigin = (req) => {
+  if (process.env.RENDER_EXTERNAL_URL) {
+    return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '');
+  }
+  if (req) {
+    const host = req.get('x-forwarded-host') || req.get('host');
+    const proto = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      return `${proto}://${host}`;
+    }
+  }
+  if (env.APP_URL && (!env.APP_URL.includes('localhost') || env.NODE_ENV !== 'production')) {
+    return env.APP_URL.replace(/\/$/, '');
+  }
+  if (env.NODE_ENV === 'production') {
+    return 'https://pulse-watch-frkc.onrender.com';
+  }
+  return env.APP_URL || 'http://localhost:5000';
+};
+
+export const getOAuthCallbackUrl = (req) => {
+  return `${getCanonicalOrigin(req)}/api/v1/auth/google/callback`;
+};
 
 /** Redirect user to Google's real OAuth 2.0 consent screen. */
 export const googleRedirect = asyncHandler(async (req, res, next) => {
@@ -400,13 +432,16 @@ export const googleRedirect = asyncHandler(async (req, res, next) => {
   }
 
   const { OAuth2Client } = await import('google-auth-library');
-  const callbackUrl = `${env.APP_URL}/api/v1/auth/google/callback`;
+  const callbackUrl = getOAuthCallbackUrl(req);
+  logger.info({ callbackUrl }, 'Initiating Google OAuth redirect');
+
   const client = new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, callbackUrl);
 
   const authorizeUrl = client.generateAuthUrl({
     access_type: 'offline',
     scope: ['openid', 'email', 'profile'],
     prompt: 'select_account', // Always show account picker so user can choose / add account
+    redirect_uri: callbackUrl, // Strictly ensure redirect_uri matches
   });
 
   res.redirect(authorizeUrl);
@@ -418,23 +453,27 @@ export const googleCallback = asyncHandler(async (req, res, next) => {
     return next(new AppError('Google sign-in is not configured on this server.', 501));
   }
 
+  const origin = getCanonicalOrigin(req);
   const code = req.query.code;
   if (!code) {
     // User cancelled or Google returned an error
-    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_cancelled`);
+    return res.redirect(`${origin}/auth?mode=login&error=google_cancelled`);
   }
 
   const { OAuth2Client } = await import('google-auth-library');
-  const callbackUrl = `${env.APP_URL}/api/v1/auth/google/callback`;
+  const callbackUrl = getOAuthCallbackUrl(req);
   const client = new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, callbackUrl);
 
   let tokens;
   try {
-    const tokenResponse = await client.getToken(code);
+    const tokenResponse = await client.getToken({
+      code,
+      redirect_uri: callbackUrl,
+    });
     tokens = tokenResponse.tokens;
   } catch (err) {
-    logger.error({ err }, 'Google token exchange failed');
-    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+    logger.error({ err: err.message, code: err.code }, 'Google token exchange failed');
+    return res.redirect(`${origin}/auth?mode=login&error=google_failed`);
   }
 
   // Verify the id_token to get the user's profile
@@ -446,12 +485,12 @@ export const googleCallback = asyncHandler(async (req, res, next) => {
     });
     payload = ticket.getPayload();
   } catch (err) {
-    logger.error({ err }, 'Google ID token verification failed');
-    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+    logger.error({ err: err.message }, 'Google ID token verification failed');
+    return res.redirect(`${origin}/auth?mode=login&error=google_failed`);
   }
 
   if (!payload || !payload.email) {
-    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+    return res.redirect(`${origin}/auth?mode=login&error=google_failed`);
   }
 
   const email = payload.email.toLowerCase();
@@ -484,7 +523,7 @@ export const googleCallback = asyncHandler(async (req, res, next) => {
   
   // Set the session cookie, then redirect to the frontend dashboard
   setSessionCookie(res, user);
-  res.redirect(`${env.APP_URL}/dashboard`);
+  res.redirect(`${origin}/dashboard`);
 });
 
 /* ─────────────── password reset ─────────────── */

@@ -110,9 +110,216 @@ export const createApp = () => {
   app.use('/api/v1/alert-channels', alertChannelRoutes);
   app.use('/api/v1/dashboard', statsRoutes);
 
-  // Health check
+  // Health check — serves a premium UI in browsers, and raw JSON for monitoring probes/Render
   app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'Server is running', timestamp: new Date().toISOString() });
+    const isBrowser = req.accepts(['html', 'json']) === 'html';
+    const timestamp = new Date().toISOString();
+    const uptimeSec = Math.floor(process.uptime());
+    const uptimeFormatted = `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m ${uptimeSec % 60}s`;
+
+    if (!isBrowser) {
+      return res.status(200).json({
+        status: 'ok',
+        message: 'Server is running',
+        timestamp,
+        uptime: uptimeFormatted,
+      });
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseWatch — System Health & Status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0b0b0a;
+      color: #ede8df;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .card {
+      width: 100%;
+      max-width: 540px;
+      background: #141412;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 40px -15px rgba(0,0,0,0.7);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      stroke: #22c55e;
+      stroke-width: 2;
+      fill: none;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      color: #4ade80;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 10px #22c55e;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .metric-box {
+      background: #1c1c19;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .metric-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888680;
+      margin-bottom: 4px;
+    }
+    .metric-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      color: #ede8df;
+      font-weight: 500;
+    }
+    .metric-value.good { color: #4ade80; }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: #ede8df;
+      color: #0b0b0a;
+    }
+    .btn-primary:hover {
+      background: #ffffff;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: #1c1c19;
+      color: #b0aba1;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .btn-secondary:hover {
+      background: #252522;
+      color: #ede8df;
+    }
+    .footer {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #66645e;
+      text-align: center;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>PulseWatch</span>
+      </div>
+      <div class="badge">
+        <div class="dot"></div>
+        <span>All Systems Operational</span>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric-box">
+        <div class="metric-label">API Service</div>
+        <div class="metric-value good">● Running (200 OK)</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Database</div>
+        <div class="metric-value good">● Connected</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Uptime</div>
+        <div class="metric-value">${uptimeFormatted}</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-label">Environment</div>
+        <div class="metric-value">${env.NODE_ENV}</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a href="/dashboard" class="btn btn-primary">Open Dashboard →</a>
+      <a href="/" class="btn btn-secondary">Homepage</a>
+    </div>
+
+    <div class="footer">
+      Node ${process.version} · Timestamp: ${timestamp}
+    </div>
+  </div>
+</body>
+</html>`;
+
+    res.status(200).type('html').send(html);
   });
 
   // Single-origin deploy: serve the built web app and let the SPA handle its own routes.

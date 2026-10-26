@@ -18,10 +18,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   MONGO_URI: z.string().startsWith('mongodb').default('mongodb://localhost:27017/pulse-watch'),
   JWT_SECRET: z.string().min(32).default('super_secret_jwt_key_replace_me_in_prod_must_be_32_chars'),
-  // One origin, or several separated by commas.
+  // One origin, or several separated by commas. Accepts FRONTEND_URL or CLIENT_URL.
   FRONTEND_URL: z
     .string()
-    .default('http://localhost:5173')
+    .default(process.env.CLIENT_URL || 'http://localhost:5173')
     .refine((v) => v.split(',').every((o) => z.string().url().safeParse(o.trim()).success), 'FRONTEND_URL must be URL(s)'),
   ENCRYPTION_KEY: z.string().min(32).default('super_secret_encryption_key_replace_me_32_chars'),
   // Set during key rotation: the old key, still accepted for reading until everything is re-encrypted.
@@ -42,8 +42,8 @@ const envSchema = z.object({
 
   // Public URL of the web app, used in email links. Defaults to the first FRONTEND_URL.
   APP_URL: z.string().url().optional(),
-  // Session cookie. Use SameSite=none only when the web app and API live on different sites.
-  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  // Session cookie. Defaults to 'none' in production (cross-site Vercel <-> Render) and 'lax' in dev.
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default(process.env.NODE_ENV === 'production' ? 'none' : 'lax'),
   COOKIE_DOMAIN: z.string().optional(),
   // Serve client/dist from this server (single-origin deploy, recommended).
   SERVE_CLIENT: bool('false'),

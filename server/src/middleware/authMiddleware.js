@@ -6,7 +6,9 @@ import { SESSION_COOKIE, verifySession } from '../utils/session.js';
 
 export const protect = async (req, res, next) => {
   try {
-    const token = req.cookies?.[SESSION_COOKIE];
+    const authHeader = req.headers?.authorization;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const token = req.cookies?.[SESSION_COOKIE] || req.cookies?.pw_session || req.cookies?.token || bearerToken;
     if (!token) {
       return next(new AppError('You are not logged in! Please log in to get access.', 401));
     }

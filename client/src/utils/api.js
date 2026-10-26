@@ -1,8 +1,12 @@
 import axios from 'axios';
 
+const rawApiUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+const baseURL = rawApiUrl
+  ? (rawApiUrl.endsWith('/api/v1') ? rawApiUrl : `${rawApiUrl}/api/v1`)
+  : '/api/v1';
+
 const api = axios.create({
-  // Same-origin by default (dev proxy / production). Override only for a separate API domain.
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL,
   withCredentials: true,
   timeout: 45000, // a manual check can take ~3 attempts × timeout
 });

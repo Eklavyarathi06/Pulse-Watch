@@ -29,9 +29,10 @@ export const createApp = () => {
   // Behind a proxy (Render/Fly/Railway/Nginx) this makes req.ip and secure cookies correct.
   if (env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
-  // FRONTEND_URL may list several origins (comma-separated). In development any
+  // FRONTEND_URL or CLIENT_URL may list several origins (comma-separated). In development any
   // localhost / 127.0.0.1 port is accepted too, since Vite hops to 5174, 5175… when 5173 is busy.
-  const allowedOrigins = env.FRONTEND_URL.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
+  const rawOrigins = [env.FRONTEND_URL, process.env.CLIENT_URL].filter(Boolean).join(',');
+  const allowedOrigins = rawOrigins.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
   const devLocalOrigin = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+$/;
   const isAllowedOrigin = (origin) =>
     allowedOrigins.includes(origin) || (env.NODE_ENV !== 'production' && devLocalOrigin.test(origin));
@@ -111,7 +112,7 @@ export const createApp = () => {
 
   // Health check
   app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.status(200).json({ status: 'ok', message: 'Server is running', timestamp: new Date().toISOString() });
   });
 
   // Single-origin deploy: serve the built web app and let the SPA handle its own routes.

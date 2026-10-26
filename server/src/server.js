@@ -26,7 +26,7 @@ connectDB().then(async () => {
   // Exactly one instance runs background jobs, however many are deployed.
   await startLeaderElection();
 
-  const server = app.listen(env.PORT, () => {
+  const server = app.listen(env.PORT, '0.0.0.0', () => {
     logger.info(`Server is running on port ${env.PORT} in ${env.NODE_ENV} mode`);
     startScheduler();
     startRollupJob();

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowRight, Eye, EyeOff, ShieldCheck, X } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -150,12 +150,14 @@ export function GoogleIcon({ className = 'h-4 w-4' }) {
 
 function AuthForm({ mode, invite, onDone, onMfa }) {
   const isLogin = mode === 'login';
-  const { login, register, loginWithGoogle } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
   const [authError, setAuthError] = useState('');
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+  const [searchParams] = useSearchParams();
+
+  // Show error from Google OAuth redirect (e.g. ?error=google_cancelled)
+  const googleError = searchParams.get('error');
 
   const {
     register: field,
@@ -170,6 +172,12 @@ function AuthForm({ mode, invite, onDone, onMfa }) {
   });
 
   const pw = watch('password');
+
+  // Check if Google OAuth is enabled on the server
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  useEffect(() => {
+    api.get('/auth/config').then((r) => setGoogleEnabled(Boolean(r.data.googleEnabled))).catch(() => {});
+  }, []);
 
   const onSubmit = async (data) => {
     setAuthError('');
@@ -193,75 +201,44 @@ function AuthForm({ mode, invite, onDone, onMfa }) {
   };
 
   const handleGoogleClick = () => {
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (window.google?.accounts?.id && googleClientId) {
-      setGoogleLoading(true);
-      try {
-        window.google.accounts.id.initialize({
-          client_id: googleClientId,
-          callback: async (response) => {
-            try {
-              await loginWithGoogle({ credential: response.credential });
-              onDone();
-            } catch (err) {
-              setAuthError(err.message);
-            } finally {
-              setGoogleLoading(false);
-            }
-          },
-        });
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            setShowGoogleModal(true);
-            setGoogleLoading(false);
-          }
-        });
-      } catch {
-        setShowGoogleModal(true);
-        setGoogleLoading(false);
-      }
-    } else {
-      setShowGoogleModal(true);
-    }
-  };
-
-  const executeGoogleAuth = async (email, name) => {
     setGoogleLoading(true);
-    setAuthError('');
-    try {
-      await loginWithGoogle({ email, name });
-      setShowGoogleModal(false);
-      onDone();
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setGoogleLoading(false);
-    }
+    // Redirect to the server, which redirects to Google's real OAuth consent screen
+    const apiBase = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+    const googleUrl = apiBase
+      ? `${apiBase.replace(/\/api\/v1$/, '')}/api/v1/auth/google`
+      : '/api/v1/auth/google';
+    window.location.href = googleUrl;
   };
 
   return (
     <div className="space-y-5">
-      {/* Google OAuth Button */}
-      <button
-        type="button"
-        onClick={handleGoogleClick}
-        disabled={googleLoading}
-        className="relative flex w-full items-center justify-center gap-3 rounded-[10px] border border-line-strong bg-raised-2 px-4 py-3 text-sm font-medium text-fg shadow-sm transition-all hover:bg-raised-3 hover:border-fg/40 disabled:opacity-60"
-      >
-        <GoogleIcon className="h-4 w-4 shrink-0" />
-        <span>{googleLoading ? 'Connecting to Google…' : `${isLogin ? 'Sign in' : 'Sign up'} with Google`}</span>
-      </button>
+      {/* Google OAuth Button — real redirect, not a modal */}
+      {googleEnabled && (
+        <button
+          type="button"
+          onClick={handleGoogleClick}
+          disabled={googleLoading}
+          className="relative flex w-full items-center justify-center gap-3 rounded-[10px] border border-line-strong bg-raised-2 px-4 py-3 text-sm font-medium text-fg shadow-sm transition-all hover:bg-raised-3 hover:border-fg/40 disabled:opacity-60"
+        >
+          <GoogleIcon className="h-4 w-4 shrink-0" />
+          <span>{googleLoading ? 'Redirecting to Google…' : `${isLogin ? 'Sign in' : 'Sign up'} with Google`}</span>
+        </button>
+      )}
 
       {/* Divider */}
-      <div className="relative flex items-center justify-center">
-        <div className="w-full border-t border-line" />
-        <span className="absolute bg-[#121210] px-3 font-mono text-[11px] uppercase tracking-wider text-fg-3">
-          or continue with email
-        </span>
-      </div>
+      {googleEnabled && (
+        <div className="relative flex items-center justify-center">
+          <div className="w-full border-t border-line" />
+          <span className="absolute bg-[#121210] px-3 font-mono text-[11px] uppercase tracking-wider text-fg-3">
+            or continue with email
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
         {authError && <Notice tone="error">{authError}</Notice>}
+        {googleError === 'google_cancelled' && <Notice tone="error">Google sign-in was cancelled. Please try again.</Notice>}
+        {googleError === 'google_failed' && <Notice tone="error">Google sign-in failed. Please try again or use email.</Notice>}
 
         {!isLogin && <Input label="Your name" placeholder="Ada Lovelace" autoComplete="name" {...field('name')} error={errors.name?.message} />}
         {!isLogin && !invite && (
@@ -309,72 +286,6 @@ function AuthForm({ mode, invite, onDone, onMfa }) {
           </p>
         )}
       </form>
-
-      {/* Google Account Modal (Firebase / Supabase style) */}
-      {showGoogleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-[14px] border border-line-strong bg-[#141412] p-6 shadow-2xl space-y-4 animate-scale-in">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <GoogleIcon className="h-5 w-5" />
-                <h3 className="text-base font-semibold text-fg">Google Authentication</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowGoogleModal(false)}
-                className="rounded-full p-1 text-fg-3 hover:text-fg"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-fg-3">
-              Sign in with Google to continue to <strong className="text-fg">PulseWatch</strong>. Google accounts are verified instantly.
-            </p>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => executeGoogleAuth('rathi.eklavya94121@gmail.com', 'Eklavya Rathi')}
-                className="flex w-full items-center gap-3 rounded-[10px] border border-line bg-raised-2 p-3 text-left transition-colors hover:border-fg hover:bg-raised-3"
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 font-semibold text-white">
-                  E
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-fg">Eklavya Rathi</div>
-                  <div className="truncate text-xs text-fg-3">rathi.eklavya94121@gmail.com</div>
-                </div>
-              </button>
-
-              <div className="pt-2">
-                <label className="mb-1.5 block text-xs font-medium text-fg-3">Or sign in with another Google email</label>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    placeholder="user@gmail.com"
-                    value={customGoogleEmail}
-                    onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                    className="flex-1 rounded-[8px] border border-line-strong bg-raised-2 px-3 py-1.5 text-xs text-fg outline-none focus:border-fg"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!customGoogleEmail.includes('@')}
-                    onClick={() => executeGoogleAuth(customGoogleEmail, customGoogleEmail.split('@')[0])}
-                  >
-                    Continue
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-fg-3 text-center pt-1 font-mono">
-              OAuth 2.0 • Email Pre-Verified
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

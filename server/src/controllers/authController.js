@@ -22,6 +22,7 @@ import { verifyEmailTemplate, resetPasswordTemplate } from '../services/email/te
 import { createWorkspaceFor, listWorkspacesFor, resolveWorkspaceContext, serializeWorkspace } from '../services/workspaceService.js';
 import { deleteWorkspaceCascade } from '../services/workspaceCleanup.js';
 import { audit } from '../services/audit.js';
+import { logger } from '../utils/logger.js';
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -392,44 +393,77 @@ export const resendVerification = asyncHandler(async (req, res, next) => {
   res.status(200).json({ success: true, data: { sent: true, devCode: mail.code } });
 });
 
-export const googleAuth = asyncHandler(async (req, res, next) => {
-  const { credential, email: directEmail, name: directName, picture: directPicture } = req.body || {};
-  let email, name, picture, googleId;
-
-  if (credential) {
-    try {
-      const parts = credential.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        if (!payload.email) throw new Error('Missing email in Google profile');
-        email = payload.email.toLowerCase();
-        name = payload.name || payload.given_name || email.split('@')[0];
-        picture = payload.picture || null;
-        googleId = payload.sub || `goog_${Date.now()}`;
-      } else {
-        throw new Error('Malformed token');
-      }
-    } catch (err) {
-      return next(new AppError(`Invalid Google credential: ${err.message}`, 400));
-    }
-  } else if (directEmail) {
-    email = String(directEmail).trim().toLowerCase();
-    name = String(directName || email.split('@')[0]);
-    picture = directPicture || null;
-    googleId = `goog_${crypto.createHash('md5').update(email).digest('hex').slice(0, 16)}`;
-  } else {
-    return next(new AppError('Google authentication data is required.', 400));
+/** Redirect user to Google's real OAuth 2.0 consent screen. */
+export const googleRedirect = asyncHandler(async (req, res, next) => {
+  if (!env.GOOGLE_ENABLED) {
+    return next(new AppError('Google sign-in is not configured on this server.', 501));
   }
 
-  if (!email || !email.includes('@')) {
-    return next(new AppError('Enter a valid email address.', 400));
+  const { OAuth2Client } = await import('google-auth-library');
+  const callbackUrl = `${env.APP_URL}/api/v1/auth/google/callback`;
+  const client = new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, callbackUrl);
+
+  const authorizeUrl = client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['openid', 'email', 'profile'],
+    prompt: 'select_account', // Always show account picker so user can choose / add account
+  });
+
+  res.redirect(authorizeUrl);
+});
+
+/** Google redirects here with ?code=…. Exchange it for tokens and log the user in. */
+export const googleCallback = asyncHandler(async (req, res, next) => {
+  if (!env.GOOGLE_ENABLED) {
+    return next(new AppError('Google sign-in is not configured on this server.', 501));
   }
+
+  const code = req.query.code;
+  if (!code) {
+    // User cancelled or Google returned an error
+    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_cancelled`);
+  }
+
+  const { OAuth2Client } = await import('google-auth-library');
+  const callbackUrl = `${env.APP_URL}/api/v1/auth/google/callback`;
+  const client = new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, callbackUrl);
+
+  let tokens;
+  try {
+    const tokenResponse = await client.getToken(code);
+    tokens = tokenResponse.tokens;
+  } catch (err) {
+    logger.error({ err }, 'Google token exchange failed');
+    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+  }
+
+  // Verify the id_token to get the user's profile
+  let payload;
+  try {
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: env.GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch (err) {
+    logger.error({ err }, 'Google ID token verification failed');
+    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+  }
+
+  if (!payload || !payload.email) {
+    return res.redirect(`${env.APP_URL}/auth?mode=login&error=google_failed`);
+  }
+
+  const email = payload.email.toLowerCase();
+  const name = payload.name || payload.given_name || email.split('@')[0];
+  const picture = payload.picture || null;
+  const googleId = payload.sub; // Google's unique user ID
 
   let user = await User.findOne({ email });
   if (user) {
     if (!user.googleId) user.googleId = googleId;
     if (!user.avatarUrl && picture) user.avatarUrl = picture;
-    user.emailVerified = true;
+    user.emailVerified = true; // Google verified the email
     user.lastLoginAt = new Date();
     await user.save({ validateBeforeSave: false });
   } else {
@@ -447,7 +481,10 @@ export const googleAuth = asyncHandler(async (req, res, next) => {
   }
 
   audit(req, 'auth.google_login', { actor: user, workspaceId: user.currentWorkspaceId });
-  await sendSession(user, 200, res);
+  
+  // Set the session cookie, then redirect to the frontend dashboard
+  setSessionCookie(res, user);
+  res.redirect(`${env.APP_URL}/dashboard`);
 });
 
 /* ─────────────── password reset ─────────────── */

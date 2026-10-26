@@ -54,6 +54,10 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  // Google OAuth 2.0 (console.cloud.google.com -> APIs & Services -> Credentials)
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);
@@ -67,6 +71,7 @@ export const env = _env.data;
 
 env.APP_URL = (env.APP_URL || env.FRONTEND_URL.split(',')[0]).trim().replace(/\/$/, '');
 env.RAZORPAY_ENABLED = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+env.GOOGLE_ENABLED = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 
 if (env.COOKIE_SAMESITE === 'none' && env.NODE_ENV !== 'production') {
   console.warn('COOKIE_SAMESITE=none requires HTTPS (Secure cookies); browsers drop it over plain http.');

@@ -4,7 +4,8 @@ import {
   register,
   login,
   loginTwoFactor,
-  googleAuth,
+  googleRedirect,
+  googleCallback,
   twoFactorSetup,
   twoFactorEnable,
   twoFactorDisable,
@@ -45,7 +46,8 @@ const mailLimiter = limiter(5);
 router.post('/register', authLimiter, register);
 router.post('/login', authLimiter, login);
 router.post('/login/2fa', authLimiter, loginTwoFactor);
-router.post('/google', authLimiter, googleAuth);
+router.get('/google', googleRedirect);
+router.get('/google/callback', googleCallback);
 router.post('/demo', authLimiter, demoLogin);
 router.post('/logout', logout);
 router.post('/logout-all', protect, logoutAll);
@@ -76,6 +78,7 @@ router.get('/config', (req, res) => {
       demoLogin: env.ALLOW_DEMO_LOGIN && env.NODE_ENV !== 'production',
       requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
       payments: env.RAZORPAY_ENABLED,
+      googleEnabled: env.GOOGLE_ENABLED,
     },
   });
 });

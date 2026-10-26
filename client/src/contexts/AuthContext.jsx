@@ -74,7 +74,6 @@ export const AuthProvider = ({ children }) => {
   }, [apply]);
   const verifyTwoFactor = useCallback((mfaTicket, code) => call('post', '/auth/login/2fa', { mfaTicket, code }), [call]);
   const register = useCallback((data) => call('post', '/auth/register', data), [call]);
-  const loginWithGoogle = useCallback((data) => call('post', '/auth/google', data), [call]);
   const verifyEmailCode = useCallback((code) => call('post', '/auth/verify-code', { code }), [call]);
   const resendVerification = useCallback(() => api.post('/auth/resend-verification'), []);
   const demoLogin = useCallback(() => call('post', '/auth/demo'), [call]);
@@ -130,7 +129,6 @@ export const AuthProvider = ({ children }) => {
       apply,
       refresh,
       login,
-      loginWithGoogle,
       verifyEmailCode,
       resendVerification,
       verifyTwoFactor,
@@ -147,7 +145,7 @@ export const AuthProvider = ({ children }) => {
       deleteAccount,
       setWorkspace,
     }),
-    [session, isLoading, role, apply, refresh, login, loginWithGoogle, verifyEmailCode, resendVerification, verifyTwoFactor, register, demoLogin, logout, logoutAll, resetPassword, acceptInvite, switchWorkspace, createWorkspace, updateProfile, changePassword, deleteAccount, setWorkspace]
+    [session, isLoading, role, apply, refresh, login, verifyEmailCode, resendVerification, verifyTwoFactor, register, demoLogin, logout, logoutAll, resetPassword, acceptInvite, switchWorkspace, createWorkspace, updateProfile, changePassword, deleteAccount, setWorkspace]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

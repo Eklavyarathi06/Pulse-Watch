@@ -2,7 +2,12 @@
 
 > Production-grade, zero-false-alarm uptime and API monitoring with tenant-isolated, write-only cryptography.
 >
-> **Live Deployment:** [https://pulse-watch-frkc.onrender.com](https://pulse-watch-frkc.onrender.com)
+> 🌐 **Live Application:** [https://pulse-watch-frkc.onrender.com](https://pulse-watch-frkc.onrender.com)  
+> 📹 **Project Demo Video:** [Watch on Google Drive](https://drive.google.com/file/d/1ipGOW05jMtICzXHwd5my_yWZTb7r8u19/view?usp=sharing)
+>
+> [![Demo Video](https://img.shields.io/badge/Demo_Video-Google_Drive-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/1ipGOW05jMtICzXHwd5my_yWZTb7r8u19/view?usp=sharing)
+
+> [![Live App](https://img.shields.io/badge/Live_App-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://pulse-watch-frkc.onrender.com)
 
 ---
 
